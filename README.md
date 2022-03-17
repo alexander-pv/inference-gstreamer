@@ -18,3 +18,15 @@ $
 Examples:
 
 1. `gstreamer_read_rtsp.py` - Jetson, dGPU, RTSP reading example with reconnection.
+
+Argument parser:
+```
+  -h, --help            show this help message and exit
+  -ip ip                str, rtsp ip address
+  -port port            int, rtsp port
+  -name name            str, rtsp address name
+  -codec codec          str, video codec
+  -debug_level debug_level
+                        str, GStreamer debug level
+  -d                    bool, display pipeline output
+```
