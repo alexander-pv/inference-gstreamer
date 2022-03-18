@@ -23,10 +23,13 @@ $ docker run --name ds_test --gpus=all --runtime nvidia  -e DISPLAY=$DISPLAY \
 
 Examples:
 
-1. `gstreamer_read_rtsp.py` - Jetson, dGPU, RTSP reading example with reconnection.
-```bash
-$ python3 gstreamer_read_rtsp.py -d
-```
+| Example                   |           Description           |   Support    |
+|---------------------------|---------------------------------|:------------:|
+| `gst_read_rtsp.py`        | RTSP reading with reconnection  | Jetson, dGPU |
+| `gst_primary_detector.py` |RTSP object detection with deepstream PrimaryModel|Jetson, dGPU|
+|                           |     |        |
+
+
 
 Arguments parser:
 ```
