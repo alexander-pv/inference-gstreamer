@@ -47,6 +47,7 @@ Arguments parser:
 
 * [NVIDIA-AI-IOT deepstream_python_apps](https://github.com/NVIDIA-AI-IOT/deepstream_python_apps)
 * [DeepStream FAQ](https://docs.nvidia.com/metropolis/deepstream/5.0DP/dev-guide/index.html#page/DeepStream%20Plugins%20Development%20Guide/deepstream_plugin_faq.html)
+* [DeepStream structures](https://docs.nvidia.com/metropolis/deepstream/5.0/python-api/index.html)
 * [GStreamer C tutorial](https://gstreamer.freedesktop.org/documentation/tutorials/index.html?gi-language=c)
 * [PyGObject documentation](http://lazka.github.io/pgi-docs/)
 * [Python GStreamer Tutorial](https://brettviren.github.io/pygst-tutorial-org/pygst-tutorial.html)
