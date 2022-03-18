@@ -10,7 +10,7 @@ To run examples:
 $ bash stream_video.sh <video_address>
 ```
 * For Jetson platform clone the repository. (!Streaming on Jetson is quite computational intensive. It is better to stream via another computer.)
-* For dGPU build Docker image and run Docker container.
+* For dGPU use Docker.
 
 ```bash
 $ docker build -f ./dockerfiles/deepstream-5.0-20.07-devel.Dockerfile -t gst_deepstream5.0_cuda10.2:dgpu .
