@@ -1,13 +1,14 @@
 import socket
-import time
-import gi
 import sys
+import time
+
 import cv2
+import gi
 from common import nvutils
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtsp', '1.0')
-from gi.repository import GObject, Gst, GstRtsp
+from gi.repository import Gst, GstRtsp
 
 
 class RTSPBin:
@@ -237,7 +238,6 @@ class RTSPHandler:
             self.pipeline.set_state(Gst.State.NULL)
             self.pipeline.set_state(Gst.State.READY)
             self.pipeline.set_state(Gst.State.PLAYING)
-
             # Restart time position
             self.pipeline.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH, 0)
             # Set current frame to 0 ?
