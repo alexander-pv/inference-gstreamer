@@ -23,13 +23,14 @@ $ docker run --name ds_test --gpus=all --runtime nvidia  -e DISPLAY=$DISPLAY \
 
 Examples:
 
-| Example                   | Description                                        |   Support    |
-|---------------------------|----------------------------------------------------|:------------:|
-| `gst_read_rtsp.py`        | RTSP reading with reconnection                     | Jetson, dGPU |
-| `gst_primary_detector.py` | RTSP object detection with deepstream PrimaryModel | Jetson, dGPU |
-| `gst_trafficcam_model.py` | TLT-pretrained TrafficCamNet model                 | Jetson, dGPU |
-| `gst_dashcam_model.py`    | TLT-pretrained DashCamNet model                    | Jetson, dGPU |
-|                           |                                                    |              |
+| Example                     | Description                                        |   Support    |
+|-----------------------------|----------------------------------------------------|:------------:|
+| `gst_read_rtsp.py`          | RTSP stream reading with reconnection              | Jetson, dGPU |
+| `gst_read_multiple_rtsp.py` | Multiple RTSP streams reading with reconnection    | Jetson, dGPU |
+| `gst_primary_detector.py`   | RTSP object detection with deepstream PrimaryModel | Jetson, dGPU |
+| `gst_trafficcam_model.py`   | TLT-pretrained TrafficCamNet model                 | Jetson, dGPU |
+| `gst_dashcam_model.py`      | TLT-pretrained DashCamNet model                    | Jetson, dGPU |
+|                             |                                                    |              |
 
 
 Arguments parser:
