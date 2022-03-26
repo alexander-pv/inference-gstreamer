@@ -9,7 +9,6 @@ gi.require_version('GstRtsp', '1.0')
 from gi.repository import GObject, Gst
 
 # Path for pyds library if python bindings are not installed
-sys.path.append(os.path.join(os.getcwd(), 'models', 'deep_stream'))
 sys.path.append(os.path.join('/', 'opt', 'nvidia', 'deepstream', 'deepstream', 'lib'))
 import pyds
 
@@ -106,7 +105,7 @@ def pgie_buffer_probe(pad, info, u_data):
 
 
 def main():
-    pgie_config = os.path.join('configs', 'pgie_primary_detector.txt')
+    pgie_config = os.path.join('..', 'configs', 'pgie_primary_detector.txt')
     pgie_batch = 1
     batched_push_timeout = 10
     attach_sys_ts = 1

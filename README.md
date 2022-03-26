@@ -1,5 +1,5 @@
 
-Samples of GStreamer pipelines based on python bindings and NVIDIA DeepStream modules:
+Samples of Python and C GStreamer pipelines with NVIDIA DeepStream modules:
 
 To run examples:
 

@@ -12,7 +12,6 @@ from common import gstreamer_wrappers as gsw
 from common.utils import parse_arguments
 
 # Path for pyds library
-sys.path.append(os.path.join(os.getcwd(), 'models', 'deep_stream'))
 sys.path.append(os.path.join('/', 'opt', 'nvidia', 'deepstream', 'deepstream', 'lib'))
 import pyds
 
@@ -104,7 +103,7 @@ def pgie_buffer_probe(pad, info, u_data):
 
 
 def main():
-    pgie_config = os.path.join('configs', 'pgie_trafficcamnet.txt')
+    pgie_config = os.path.join('..', 'configs', 'pgie_trafficcamnet.txt')
     pgie_batch = 1
     batched_push_timeout = 10
     width, height = 1920, 1080

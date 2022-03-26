@@ -1,26 +1,25 @@
-import logging
 import os
+import socket
 import sys
+import time
 
 import gi
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtsp', '1.0')
-from gi.repository import GObject, Gst
+from gi.repository import GObject, Gst, GstRtsp
 from common import nvutils
 from common import gstreamer_wrappers as gsw
-from common.utils import parse_arguments
 
 # Path for pyds library
 sys.path.append(os.path.join(os.getcwd(), 'models', 'deep_stream'))
 sys.path.append(os.path.join('/', 'opt', 'nvidia', 'deepstream', 'deepstream', 'lib'))
 import pyds
 
-PGIE_CLASSES = ["Car", "TwoWheeler", "Person", "RoadSign"]
-PGIE_CLASS_ID_CAR = 0
-PGIE_CLASS_ID_BICYCLE = 1
-PGIE_CLASS_ID_PERSON = 2
-PGIE_CLASS_ID_ROADSIGN = 3
+PGIE_CLASSES = ["Person", "Bag", "Face"]
+PGIE_CLASS_ID_PERSON = 0
+PGIE_CLASS_ID_BAG = 1
+PGIE_CLASS_ID_FACE = 2
 stream_fps = {}
 
 
@@ -49,10 +48,9 @@ def pgie_buffer_probe(pad, info, u_data):
         l_obj = frame_meta.obj_meta_list
         num_rects = frame_meta.num_obj_meta
         obj_counter = {
-            PGIE_CLASS_ID_CAR: 0,
             PGIE_CLASS_ID_PERSON: 0,
-            PGIE_CLASS_ID_BICYCLE: 0,
-            PGIE_CLASS_ID_ROADSIGN: 0
+            PGIE_CLASS_ID_BAG: 0,
+            PGIE_CLASS_ID_FACE: 0,
         }
         l_obj_info = []
         while l_obj is not None:
@@ -89,8 +87,9 @@ def pgie_buffer_probe(pad, info, u_data):
         print(*l_obj_info, sep='\n')
         print("\nFrame Number=", frame_number,
               "\nNumber of Objects=", num_rects,
-              "\nVehicle_count=", obj_counter[PGIE_CLASS_ID_CAR],
-              "\nPerson_count=", obj_counter[PGIE_CLASS_ID_PERSON]
+              "\nPerson_count=", obj_counter[PGIE_CLASS_ID_PERSON],
+              "\nFace_count=", obj_counter[PGIE_CLASS_ID_FACE],
+              "\nBag_count=", obj_counter[PGIE_CLASS_ID_BAG],
               )
 
         stream_fps['stream0'].get_fps()
@@ -103,19 +102,22 @@ def pgie_buffer_probe(pad, info, u_data):
     return Gst.PadProbeReturn.OK
 
 
-def main():
-    pgie_config = os.path.join('configs', 'pgie_dashcamnet.txt')
-    pgie_batch = 1
-    batched_push_timeout = 10
-    width, height = 1920, 1080
+if __name__ == '__main__':
 
-    args = parse_arguments()
-    rtsp_source = f'rtsp://{args.ip}:{args.port}/{args.name}'
+    """
+    Inference with TLT-pretrained PeopleNet model
+    https://ngc.nvidia.com/catalog/models/nvidia:tlt_peoplenet/files?version=pruned_v2.0
+    """
 
-    Gst.debug_set_active(bool(args.debug_level))
-    Gst.debug_set_default_threshold(args.debug_level)
-    GObject.threads_init()
-    Gst.init(None)
+    DISPLAY = False
+    IP = '10.42.0.1'
+    PORT = 8554
+    CODEC = "h264"
+    RTSP_REC_SRC = f'rtsp://{IP}:{PORT}/stream'
+    PGIE_CONFIG = r'configs/pgie_peoplenet.txt'
+    PGIE_BATCH = 1
+    MUXER_BATCH = 1
+    WIDTH, HEIGHT = 1920, 1080
 
     stream_fps.update({'stream0': nvutils.GetFPS(stream_id=0,
                                                  seconds=5,
@@ -126,98 +128,113 @@ def main():
                        }
                       )
 
-    pipeline = Gst.Pipeline.new('rtsp_client')
-    rtsp_bin = gsw.RTSPBin(builder_id=0, location=rtsp_source, compression=args.codec)
+    # GStreamer initialization
+    Gst.debug_set_active(True)
+    # Debug levels: 0-7
+    Gst.debug_set_default_threshold(2)
+    GObject.threads_init()
+    Gst.init(None)
 
+    # Gstreamer pipeline init
+    pipeline = Gst.Pipeline.new('rtsp_client')
+
+    # rtppsrc block
+    rtspsrc = Gst.ElementFactory.make('rtspsrc', 'video-source')
+    rtspsrc.set_property('location', RTSP_REC_SRC)
+    rtspsrc.set_property('protocols', GstRtsp.RTSPLowerTrans.TCP)
+    rtspsrc.set_property('retry', 25000)
+    # rtspsrc.set_property('latency', 0)
+    # rtspsrc.set_property('do-rtsp-keep-alive', 1)
+    # rtspsrc.set_property('tcp-timeout', 25000)
+    # rtspsrc.set_property('do-rtcp', 1)
+
+    # Extract H26x video from RTSP: rtph26xdepay
+    rtph26xdepay = Gst.ElementFactory.make(f"rtp{CODEC}depay", f"rtp{CODEC}depay")
+    # Parse H26x video: h26xparser
+    h26xparser = Gst.ElementFactory.make(f"{CODEC}parse", f"{CODEC}-parser")
+
+    decoder = Gst.ElementFactory.make("nvv4l2decoder", "nvv4l2-decoder")
+    decoder.set_property("enable-max-performance", 1)
+    decoder.set_property("enable-frame-type-reporting", 1)
+
+    # Init streammuxer
     streammux = Gst.ElementFactory.make("nvstreammux", "stream_muxer")
     streammux.set_property('live-source', 1)
-    streammux.set_property('width', width)
-    streammux.set_property('height', height)
-    streammux.set_property('batch-size', pgie_batch)
-    streammux.set_property('batched-push-timeout', batched_push_timeout)
+    streammux.set_property('width', WIDTH)
+    streammux.set_property('height', HEIGHT)
+    streammux.set_property('batch-size', MUXER_BATCH)
+    streammux.set_property('batched-push-timeout', 10)
 
+    # Primary GPU inference engine - pgie
     pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
-    pgie.set_property('config-file-path', pgie_config)
-    pgie.set_property("batch-size", pgie_batch)
+    pgie.set_property('config-file-path', PGIE_CONFIG)
+    pgie.set_property("batch-size", PGIE_BATCH)
 
     nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "nvidia_convertor")
+
     nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
 
+    # Add capsfilter
     capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
     capsfilter.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), format=(string)RGBA"))
 
-    if args.d:
-        nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
-        if nvutils.is_aarch64():
-            transform = Gst.ElementFactory.make("nvegltransform", "nvegl-transform")
+    if DISPLAY:
+        transform = Gst.ElementFactory.make("nvegltransform", "nvegl-transform")
         sink = Gst.ElementFactory.make("nveglglessink", "nvvideo-renderer")
         sink.set_property('sync', 1)
     else:
         sink = Gst.ElementFactory.make("fakesink", 'fake_sink')
 
-    pipeline.add(rtsp_bin.rtspsrc)
-    if nvutils.is_aarch64():
-        pipeline.add(rtsp_bin.depayer)
-        pipeline.add(rtsp_bin.parser)
-    pipeline.add(rtsp_bin.decoder)
+    pipeline.add(rtspsrc)
+    pipeline.add(rtph26xdepay)
+    pipeline.add(h26xparser)
+    pipeline.add(decoder)
     pipeline.add(streammux)
     pipeline.add(pgie)
     pipeline.add(nvvidconv)
-
-    if args.d:
+    if DISPLAY:
         pipeline.add(capsfilter)
         pipeline.add(nvosd)
-        if nvutils.is_aarch64():
-            pipeline.add(transform)
+        pipeline.add(transform)
     pipeline.add(sink)
 
-    streammux_sinkpad = streammux.get_request_pad('sink_%u' % 0)
-    if nvutils.is_aarch64():
-        decoder_srcpad = rtsp_bin.decoder.get_static_pad("src")
-        decoder_srcpad.link(streammux_sinkpad)
-    else:
-        decodebin_handler = gsw.DecodeBinHandler(sink_pad=streammux_sinkpad)
-        rtsp_bin.decoder.connect("pad-added", decodebin_handler.decodebin_pad_added)
-        rtsp_bin.decoder.connect("pad-removed", decodebin_handler.decodebin_pad_removed)
+    # Create sink pad for streammux with a specified id and connect with decoder srcpad
+    streammux_sinkpad = streammux.get_request_pad('sink_%u' % 1)
+    decoder_srcpad = decoder.get_static_pad("src")
+    decoder_srcpad.link(streammux_sinkpad)
 
+    # Link all elements in pipeline except source which has a dynamic source pad'''
     print("Linking elements in the Pipeline \n")
-    if nvutils.is_aarch64():
-        rtsp_bin.depayer.link(rtsp_bin.parser)
-        rtsp_bin.parser.link(rtsp_bin.decoder)
-
+    rtph26xdepay.link(h26xparser)
+    h26xparser.link(decoder)
+    decoder.link(streammux)
     streammux.link(pgie)
     pgie.link(nvvidconv)
-    nvvidconv.link(capsfilter)
-
-    if args.d:
+    if DISPLAY:
+        nvvidconv.link(capsfilter)
         capsfilter.link(nvosd)
-        if nvutils.is_aarch64():
-            nvosd.link(transform)
-            transform.link(sink)
-        else:
-            nvosd.link(sink)
+        nvosd.link(transform)
+        capsfilter.link(transform)
+        transform.link(sink)
     else:
-        capsfilter.link(sink)
+        nvvidconv.link(sink)
 
+    # Probe for inference description
     pgie_src_pad = pgie.get_static_pad("src")
     pgie_src_pad.add_probe(Gst.PadProbeType.BUFFER, pgie_buffer_probe, 0)
 
+    # Init RTSPHandler
     rtsp_handler = gsw.RTSPHandler(pipeline=pipeline,
                                    loop=GObject.MainLoop(),
-                                   basic_blocks={0: rtsp_bin},
-                                   **{'rtsp': {'addr': args.ip, 'port': args.port}}
+                                   source=rtspsrc,
+                                   connect_plugin=rtph26xdepay,
+                                   **{'rtsp': {'addr': IP, 'port': PORT}}
                                    )
 
     try:
         rtsp_handler.loop.run()
-    except KeyboardInterrupt:
+    except:
         pass
-    except Exception as e:
-        logging.error(e)
 
     pipeline.set_state(Gst.State.NULL)
     del pipeline
-
-
-if __name__ == '__main__':
-    sys.exit(main())
