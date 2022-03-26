@@ -5,9 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <gst/gst.h>
-//#include <gstnvdsmeta.h>
-//#include <gst-nvmessage.h>
-//#include <nvdsmeta.h>
 
 #include "argparser.h"
 #include "functions.h"
