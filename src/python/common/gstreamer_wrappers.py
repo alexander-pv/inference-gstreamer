@@ -1,9 +1,9 @@
-import socket
 import sys
 import time
-
+import logging
 import cv2
 import gi
+import platform
 from common import nvutils
 
 gi.require_version('Gst', '1.0')
@@ -13,12 +13,14 @@ from gi.repository import Gst, GstRtsp
 
 class RTSPBin:
 
-    def __init__(self, builder_id, location, compression='h264', retry=25000):
+    def __init__(self, builder_id: int, location: str, compression: str = 'h264',
+                 retry: int = 25000, loglevel: int = logging.DEBUG):
         """
         :param builder_id:  RTSP index, int
         :param location:    RTSP address with port and postfix, str
         :param compression: Video compression format
         :param retry:       rtspsrc number of retries
+        :param loglevel:
         """
         self.builder_id = builder_id
         self.location = location
@@ -43,6 +45,14 @@ class RTSPBin:
 
         self._build()
 
+        self.loglevel = loglevel
+        self.name = self.__class__.__name__
+        logging.basicConfig(
+            level=self.loglevel,
+            format=f'%(asctime)s.%(msecs)03d %(levelname)s %(module)s - {self.name}.%(funcName)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+
     def _build(self):
         """
         Build basic GStreamer RTSP-block with elements:
@@ -63,7 +73,7 @@ class RTSPBin:
         self.rtspsrc.set_property('location', self.location)
         self.rtspsrc.set_property('protocols', GstRtsp.RTSPLowerTrans.TCP)
         self.rtspsrc.set_property('retry', self.retry)
-
+        logging.debug(f'Building for {platform.uname().machine}')
         if self.is_aarch64:
             # Extract video from RTSP
             self.depayer = Gst.ElementFactory.make(cur_comp['depayer'], cur_comp['depayer'] + f'_{self.builder_id}')
@@ -82,12 +92,13 @@ class RTSPBin:
 
 
 class RTSPHandler:
-    def __init__(self, pipeline, loop, basic_blocks, **kwargs):
+    def __init__(self, pipeline, loop, basic_blocks, loglevel=logging.DEBUG, **kwargs):
         """
         GStreamer rtsp handler with pipeline reconnection option
         :param pipeline:
         :param loop:
         :param basic_blocks:
+        :param loglevel:
         """
 
         self.pipeline = pipeline
@@ -99,13 +110,23 @@ class RTSPHandler:
         self.pipeline.set_state(Gst.State.PLAYING)
         self.kwargs = kwargs
 
+        self.callback_delay = 5
         self.reconn_wait = 10
+        self.get_state_wait = 5
         self.alive = True
         self.caught_eos = False
         self.check_flow_enabled = True
         self._rtspsrc_active = {}
         self._rtspsrc_flow_th = 0
         self._rtspsrc_flow_timer = 1e5
+
+        self.loglevel = loglevel
+        self.name = self.__class__.__name__
+        logging.basicConfig(
+            level=self.loglevel,
+            format=f'%(asctime)s.%(msecs)03d %(levelname)s %(module)s - {self.name}.%(funcName)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
 
     def init_pipeline_callbacks(self):
         """Note that source is an rtspsrc element which has a dynamically
@@ -134,7 +155,7 @@ class RTSPHandler:
         :return:
         """
         source_id = int(rtspsrc.get_name().split('_')[-1])
-        print(f'Pad added to rtspsrc element. Source id: {source_id}')
+        logging.debug(f'Pad added to rtspsrc element. Source id: {source_id}')
         sink_pad = self.basic_blocks[source_id].connect_plugin.get_static_pad('sink')
         if not sink_pad.is_linked():
             pad.link(sink_pad)
@@ -147,7 +168,7 @@ class RTSPHandler:
         :return:
         """
         source_id = int(rtspsrc.get_name().split('_')[-1])
-        print(f'Pad removed from rtspsrc element. Source id: {source_id}')
+        logging.debug(f'Pad removed from rtspsrc element. Source id: {source_id}')
         sink_pad = self.basic_blocks[source_id].connect_plugin.get_static_pad('sink')
         if sink_pad.is_linked():
             pad.unlink(sink_pad)
@@ -158,21 +179,8 @@ class RTSPHandler:
         :param state_type:
         :return:
         """
-        result, state, pending = self.pipeline.get_state(10)
-        if (state == state_type) & (result == Gst.StateChangeReturn.SUCCESS):
-            return True
-        else:
-            return False
-
-    def check_tcp(self):
-        """
-        Check TCP connection
-        :return: int
-        """
-        tcp_alive = is_tcp_alive(self.kwargs['rtsp']['addr'], self.kwargs['rtsp']['port'])
-        while not tcp_alive:
-            tcp_alive = is_tcp_alive(self.kwargs['rtsp']['addr'], self.kwargs['rtsp']['port'])
-        return tcp_alive
+        result, state, pending = self.pipeline.get_state(self.get_state_wait)
+        return (state == state_type) & (result == Gst.StateChangeReturn.SUCCESS)
 
     def check_eos(self, message):
         """
@@ -183,7 +191,7 @@ class RTSPHandler:
         if not self.caught_eos:
             t = message.type
             if t == Gst.MessageType.EOS:
-                print('[Gst.MessageType] EOS')
+                logging.debug('[Gst.MessageType] EOS')
                 self.caught_eos = True
                 self.alive = False
             else:
@@ -228,7 +236,6 @@ class RTSPHandler:
         :return: None
         """
 
-        self.check_tcp()
         self.check_eos(message)
         self.check_rtspsrc_flow()
 
@@ -248,8 +255,7 @@ class RTSPHandler:
                 self.alive = True
                 self.caught_eos = False
             else:
-                # Setting playing state failure
-                continue
+                raise Exception(f'{self.pipeline.get_state(self.get_state_wait)}')
 
 
 class DecodeBinHandler:
@@ -262,37 +268,17 @@ class DecodeBinHandler:
         self.sink_pad = sink_pad
         self.video_formats = ['video/x-raw', 'video/h264', 'video/h265']
 
-    def decodebin_pad_added(self, element, pad):
-        string = pad.query_caps(None).to_string()
-        print('Linking stream: %s' % string)
+    def decodebin_pad_added(self, element, src_pad):
+        string = src_pad.query_caps(None).to_string()
+        logging.debug('Linking stream: %s' % string)
         if sum([string.startswith(f) for f in self.video_formats]):
-            pad.link(self.sink_pad)
+            src_pad.link(self.sink_pad)
 
-    def decodebin_pad_removed(self, element, pad):
-        string = pad.query_caps(None).to_string()
-        print('Unlinking stream: %s' % string)
+    def decodebin_pad_removed(self, element, src_pad):
+        string = src_pad.query_caps(None).to_string()
+        logging.debug('Unlinking stream: %s' % string)
         if sum([string.startswith(f) for f in self.video_formats]):
-            pad.unlink(self.sink_pad)
-
-
-def is_tcp_alive(address, port):
-    """
-    Check TCP connection
-    :param address:
-    :param port:
-    :return: int
-    """
-
-    try:
-        conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        conn.connect((address, port))
-        signal = 1
-        conn.close()
-    except socket.timeout:
-        signal = 0
-    except OSError:
-        signal = 0
-    return signal
+            src_pad.unlink(self.sink_pad)
 
 
 def object_generator(obj, parse_function):

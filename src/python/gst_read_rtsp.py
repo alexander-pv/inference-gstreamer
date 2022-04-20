@@ -75,8 +75,8 @@ def main():
                                    )
     try:
         rtsp_handler.loop.run()
-    except KeyboardInterrupt:
-        pass
+    except KeyboardInterrupt as e:
+        logging.error(e)
     except Exception as e:
         logging.error(e)
 

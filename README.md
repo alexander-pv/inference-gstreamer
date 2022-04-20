@@ -17,6 +17,7 @@ $ docker build -f ./dockerfiles/deepstream-5.0-20.07-devel.Dockerfile -t gst_dee
 $ xhost +local:docker
 $ docker run --name ds_test --gpus=all --runtime nvidia  -e DISPLAY=$DISPLAY \
          --rm -i -t --net=host \
+         -v $PWD:/home/ubuntu/inference-gstreamer \
          -v /tmp/.X11-unix/:/tmp/.X11-unix "gst_deepstream5.0_cuda10.2:dgpu" bash
 
 ```
