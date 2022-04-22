@@ -9,11 +9,14 @@ from gi.repository import GObject, Gst
 
 from common import nvutils
 from common import gstreamer_wrappers as gsw
-from common.utils import parse_arguments
+from common import utils
 
 
 def main():
-    args = parse_arguments()
+    args = utils.parse_arguments()
+    if args.v:
+        utils.set_logging()
+
     rtsp_source = f'rtsp://{args.ip}:{args.port}/{args.name}'
 
     Gst.debug_set_active(bool(args.debug_level))
@@ -41,22 +44,21 @@ def main():
 
     pipeline.add(rtsp_bin.rtspsrc)
     if rtsp_bin.is_aarch64:
-        pipeline.add(rtsp_bin.rtph26xdepay)
-        pipeline.add(rtsp_bin.h26xparser)
+        pipeline.add(rtsp_bin.depayer)
+        pipeline.add(rtsp_bin.parser)
     pipeline.add(rtsp_bin.decoder)
     pipeline.add(nvvidconv)
     pipeline.add(sink)
 
-    print("Linking elements in the Pipeline \n")
+    logging.info("Linking elements in the Pipeline")
     if nvutils.is_aarch64():
-        rtsp_bin.rtph26xdepay.link(rtsp_bin.h26xparser)
-        rtsp_bin.h26xparser.link(rtsp_bin.decoder)
+        rtsp_bin.depayer.link(rtsp_bin.parser)
+        rtsp_bin.parser.link(rtsp_bin.decoder)
         rtsp_bin.decoder.link(nvvidconv)
     else:
-        nvidconv_sinkpad = nvvidconv.get_static_pad("sink")
-        decodebin_handler = gsw.DecodeBinHandler(sink_pad=nvidconv_sinkpad)
-        rtsp_bin.decoder.connect("pad-added", decodebin_handler.decodebin_pad_added)
-        rtsp_bin.decoder.connect("pad-removed", decodebin_handler.decodebin_pad_removed)
+        decodebin_handler = gsw.DecodeBinHandler(next_element=nvvidconv)
+        rtsp_bin.decoder.connect("pad-added", decodebin_handler.on_pad_added)
+        rtsp_bin.decoder.connect("pad-removed", decodebin_handler.on_pad_removed)
 
     nvvidconv.link(capsfilter)
     if args.d:

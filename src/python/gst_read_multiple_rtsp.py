@@ -10,11 +10,14 @@ gi.require_version('GstRtsp', '1.0')
 from gi.repository import GObject, Gst
 from common import nvutils
 from common import gstreamer_wrappers as gsw
-from common.utils import parse_arguments
+from common import utils
 
 
 def main():
-    args = parse_arguments()
+    args = utils.parse_arguments()
+    if args.v:
+        utils.set_logging()
+
     rtsp_source = f'rtsp://{args.ip}:{args.port}/{args.name}'
 
     stream_multiplier = 2
@@ -47,7 +50,7 @@ def main():
 
         rtsp_bin = gsw.RTSPBin(builder_id=i, location=rtsp_source, compression=args.codec)
         rtsp_blocks.update({i: rtsp_bin})
-        streammux_sinkpad = streammux.get_request_pad(f'sink_{i}')
+        streammux_sinkpad = streammux.get_request_pad('sink_%u' % i)
 
         if nvutils.is_aarch64():
             pipeline.add(rtsp_bin.rtspsrc)
@@ -64,9 +67,9 @@ def main():
             pipeline.add(rtsp_bin.rtspsrc)
             pipeline.add(rtsp_bin.decoder)
 
-            decodebin_handler = gsw.DecodeBinHandler(sink_pad=streammux_sinkpad)
-            rtsp_bin.decoder.connect("pad-added", decodebin_handler.decodebin_pad_added)
-            rtsp_bin.decoder.connect("pad-removed", decodebin_handler.decodebin_pad_removed)
+            streammux_handler = gsw.StreamMuxHandler(next_element=streammux, index=i)
+            rtsp_bin.decoder.connect("pad-added", streammux_handler.on_pad_added)
+            rtsp_bin.decoder.connect("pad-removed", streammux_handler.on_pad_removed)
 
     tiler = Gst.ElementFactory.make("nvmultistreamtiler", "nvtiler")
     tiler.set_property("rows", tiler_rows)
@@ -93,7 +96,7 @@ def main():
     pipeline.add(nvvidconv)
     pipeline.add(sink)
 
-    print("Linking elements in the Pipeline \n")
+    logging.info("Linking elements in the Pipeline \n")
     streammux.link(tiler)
     tiler.link(nvvidconv)
     nvvidconv.link(capsfilter)
@@ -114,8 +117,8 @@ def main():
                                    )
     try:
         rtsp_handler.loop.run()
-    except KeyboardInterrupt:
-        pass
+    except KeyboardInterrupt as e:
+        logging.error(e)
     except Exception as e:
         logging.error(e)
 

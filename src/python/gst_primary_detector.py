@@ -14,7 +14,7 @@ import pyds
 
 from common import nvutils
 from common import gstreamer_wrappers as gsw
-from common.utils import parse_arguments
+from common import utils
 
 PGIE_CLASSES = ["Vehicle", "TwoWheeler", "Person", "RoadSign"]
 PGIE_CLASS_ID_VEHICLE = 0
@@ -111,7 +111,10 @@ def main():
     attach_sys_ts = 1
     width, height = 1920, 1080
 
-    args = parse_arguments()
+    args = utils.parse_arguments()
+    if args.v:
+        utils.set_logging()
+
     rtsp_source = f'rtsp://{args.ip}:{args.port}/{args.name}'
 
     Gst.debug_set_active(bool(args.debug_level))
@@ -173,16 +176,16 @@ def main():
             pipeline.add(transform)
     pipeline.add(sink)
 
-    streammux_sinkpad = streammux.get_request_pad('sink_%u' % 0)
     if nvutils.is_aarch64():
+        streammux_sinkpad = streammux.get_request_pad('sink_%u' % 0)
         decoder_srcpad = rtsp_bin.decoder.get_static_pad("src")
         decoder_srcpad.link(streammux_sinkpad)
     else:
-        decodebin_handler = gsw.DecodeBinHandler(sink_pad=streammux_sinkpad)
-        rtsp_bin.decoder.connect("pad-added", decodebin_handler.decodebin_pad_added)
-        rtsp_bin.decoder.connect("pad-removed", decodebin_handler.decodebin_pad_removed)
+        streammux_handler = gsw.StreamMuxHandler(next_element=streammux, index=0)
+        rtsp_bin.decoder.connect("pad-added", streammux_handler.on_pad_added)
+        rtsp_bin.decoder.connect("pad-removed", streammux_handler.on_pad_removed)
 
-    print("Linking elements in the Pipeline \n")
+    logging.info("Linking elements in the Pipeline")
     if nvutils.is_aarch64():
         rtsp_bin.depayer.link(rtsp_bin.parser)
         rtsp_bin.parser.link(rtsp_bin.decoder)
@@ -212,8 +215,8 @@ def main():
 
     try:
         rtsp_handler.loop.run()
-    except KeyboardInterrupt:
-        pass
+    except KeyboardInterrupt as e:
+        logging.error(e)
     except Exception as e:
         logging.error(e)
 

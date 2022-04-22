@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <gst/gst.h>
-
 #include "argparser.h"
 #include "functions.h"
 

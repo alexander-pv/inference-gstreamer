@@ -97,4 +97,3 @@ RUN cd /opt/nvidia/deepstream/deepstream/lib && sudo -H python3 setup.py install
 RUN python3 -m pip install pandas
 
 WORKDIR /home/ubuntu
-COPY src /home/ubuntu/gstreamer_examples

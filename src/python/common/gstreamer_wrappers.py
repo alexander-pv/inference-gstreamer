@@ -10,18 +10,21 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GstRtsp', '1.0')
 from gi.repository import Gst, GstRtsp
 
+from abc import ABCMeta, abstractmethod
+
 
 class RTSPBin:
 
     def __init__(self, builder_id: int, location: str, compression: str = 'h264',
-                 retry: int = 25000, loglevel: int = logging.DEBUG):
+                 retry: int = 25000, verbose: bool = True):
         """
         :param builder_id:  RTSP index, int
         :param location:    RTSP address with port and postfix, str
         :param compression: Video compression format
         :param retry:       rtspsrc number of retries
-        :param loglevel:
+        :param verbose:
         """
+        self.verbose = verbose
         self.builder_id = builder_id
         self.location = location
         self.compression = compression
@@ -45,14 +48,6 @@ class RTSPBin:
 
         self._build()
 
-        self.loglevel = loglevel
-        self.name = self.__class__.__name__
-        logging.basicConfig(
-            level=self.loglevel,
-            format=f'%(asctime)s.%(msecs)03d %(levelname)s %(module)s - {self.name}.%(funcName)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-
     def _build(self):
         """
         Build basic GStreamer RTSP-block with elements:
@@ -73,7 +68,9 @@ class RTSPBin:
         self.rtspsrc.set_property('location', self.location)
         self.rtspsrc.set_property('protocols', GstRtsp.RTSPLowerTrans.TCP)
         self.rtspsrc.set_property('retry', self.retry)
-        logging.debug(f'Building for {platform.uname().machine}')
+        if self.verbose:
+            logging.info(f'Building for {platform.uname().machine}')
+
         if self.is_aarch64:
             # Extract video from RTSP
             self.depayer = Gst.ElementFactory.make(cur_comp['depayer'], cur_comp['depayer'] + f'_{self.builder_id}')
@@ -92,13 +89,13 @@ class RTSPBin:
 
 
 class RTSPHandler:
-    def __init__(self, pipeline, loop, basic_blocks, loglevel=logging.DEBUG, **kwargs):
+    def __init__(self, pipeline, loop, basic_blocks: dict, verbose: bool = True, **kwargs):
         """
         GStreamer rtsp handler with pipeline reconnection option
         :param pipeline:
         :param loop:
         :param basic_blocks:
-        :param loglevel:
+        :param verbose:
         """
 
         self.pipeline = pipeline
@@ -120,13 +117,7 @@ class RTSPHandler:
         self._rtspsrc_flow_th = 0
         self._rtspsrc_flow_timer = 1e5
 
-        self.loglevel = loglevel
-        self.name = self.__class__.__name__
-        logging.basicConfig(
-            level=self.loglevel,
-            format=f'%(asctime)s.%(msecs)03d %(levelname)s %(module)s - {self.name}.%(funcName)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        self.verbose = verbose
 
     def init_pipeline_callbacks(self):
         """Note that source is an rtspsrc element which has a dynamically
@@ -155,7 +146,8 @@ class RTSPHandler:
         :return:
         """
         source_id = int(rtspsrc.get_name().split('_')[-1])
-        logging.debug(f'Pad added to rtspsrc element. Source id: {source_id}')
+        if self.verbose:
+            logging.info(f'Pad added to rtspsrc element. Source id: {source_id}')
         sink_pad = self.basic_blocks[source_id].connect_plugin.get_static_pad('sink')
         if not sink_pad.is_linked():
             pad.link(sink_pad)
@@ -168,7 +160,8 @@ class RTSPHandler:
         :return:
         """
         source_id = int(rtspsrc.get_name().split('_')[-1])
-        logging.debug(f'Pad removed from rtspsrc element. Source id: {source_id}')
+        if self.verbose:
+            logging.info(f'Pad removed from rtspsrc element. Source id: {source_id}')
         sink_pad = self.basic_blocks[source_id].connect_plugin.get_static_pad('sink')
         if sink_pad.is_linked():
             pad.unlink(sink_pad)
@@ -191,7 +184,8 @@ class RTSPHandler:
         if not self.caught_eos:
             t = message.type
             if t == Gst.MessageType.EOS:
-                logging.debug('[Gst.MessageType] EOS')
+                if self.verbose:
+                    logging.info('[Gst.MessageType] EOS')
                 self.caught_eos = True
                 self.alive = False
             else:
@@ -258,27 +252,91 @@ class RTSPHandler:
                 raise Exception(f'{self.pipeline.get_state(self.get_state_wait)}')
 
 
-class DecodeBinHandler:
+class ElementsConnectionHandler(metaclass=ABCMeta):
 
-    def __init__(self, sink_pad):
+    def __init__(self, next_element, index: str or int = None, verbose: bool = True):
         """
-        Decodebin wrapper for GStreamer video processing
-        :param sink_pad:
+        Abstract class handler for GStreamer elements dynamic generation based on pad-added and pad-removed signals.
+        :param next_element:
+        :param index:
+        :param loglevel:
         """
-        self.sink_pad = sink_pad
+        self.next_element = next_element
+        self.next_element_sink_pad = None
+        self.caps_string = None
+        self.index = index
+        self.sink_pad_name = "sink" if self.index is None else f"sink_{self.index}"
         self.video_formats = ['video/x-raw', 'video/h264', 'video/h265']
+        self.verbose = verbose
 
-    def decodebin_pad_added(self, element, src_pad):
-        string = src_pad.query_caps(None).to_string()
-        logging.debug('Linking stream: %s' % string)
-        if sum([string.startswith(f) for f in self.video_formats]):
-            src_pad.link(self.sink_pad)
+    def on_pad_added(self, element, src_pad) -> None:
+        self.caps_string = src_pad.query_caps(None).to_string()
+        if self.verbose:
+            logging.info(f'Linking: {self.caps_string}')
+        self.make_sink_pad()
+        if sum([self.caps_string.startswith(f) for f in self.video_formats]):
+            src_pad.link(self.next_element_sink_pad)
 
-    def decodebin_pad_removed(self, element, src_pad):
-        string = src_pad.query_caps(None).to_string()
-        logging.debug('Unlinking stream: %s' % string)
-        if sum([string.startswith(f) for f in self.video_formats]):
-            src_pad.unlink(self.sink_pad)
+    def on_pad_removed(self, element, src_pad) -> None:
+        if self.verbose:
+            logging.info(f'Unlinking: {self.caps_string}')
+        if sum([self.caps_string.startswith(f) for f in self.video_formats]):
+            src_pad.unlink(self.next_element_sink_pad)
+        self.destroy_sink_pad()
+
+    @abstractmethod
+    def make_sink_pad(self):
+        return
+
+    @abstractmethod
+    def destroy_sink_pad(self):
+        return
+
+
+class DecodeBinHandler(ElementsConnectionHandler):
+
+    def __init__(self, *args, **kwargs):
+        """
+        Element handler for decodebin
+        :param args:
+        :param kwargs:
+        """
+        super(DecodeBinHandler, self).__init__(*args, **kwargs)
+
+    def make_sink_pad(self) -> None:
+        if self.verbose:
+            logging.info(f'Making sink pad: {self.sink_pad_name}')
+        if not self.next_element_sink_pad:
+            self.next_element_sink_pad = self.next_element.get_static_pad(self.sink_pad_name)
+
+    def destroy_sink_pad(self) -> None:
+        if self.verbose:
+            logging.info(f'Destroying sink pad: {self.sink_pad_name}')
+        pass
+
+
+class StreamMuxHandler(ElementsConnectionHandler):
+
+    def __init__(self, *args, **kwargs):
+        """
+         Element handler for streammux
+        :param args:
+        :param kwargs:
+        """
+        super(StreamMuxHandler, self).__init__(*args, **kwargs)
+
+    def make_sink_pad(self) -> None:
+        if self.verbose:
+            logging.info(f'Making sink pad: {self.sink_pad_name}')
+        if not self.next_element_sink_pad:
+            self.next_element_sink_pad = self.next_element.get_request_pad(self.sink_pad_name)
+
+    def destroy_sink_pad(self) -> None:
+        if self.verbose:
+            logging.info(f'Destroying sink pad: {self.sink_pad_name}')
+        if self.next_element_sink_pad:
+            self.next_element.remove_pad(self.next_element_sink_pad)
+        self.next_element_sink_pad = None
 
 
 def object_generator(obj, parse_function):
@@ -291,7 +349,6 @@ def object_generator(obj, parse_function):
         parse_function: pyds.NvDsFrameMeta.cast or another
 
     Returns:
-
     """
 
     try:
