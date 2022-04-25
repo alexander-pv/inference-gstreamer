@@ -24,25 +24,26 @@ $ docker run --name ds_test --gpus=all --runtime nvidia  -e DISPLAY=$DISPLAY \
 
 Examples:
 
-| Example                     | Description                                        |   Support    |
-|-----------------------------|----------------------------------------------------|:------------:|
-| `gst_read_rtsp.py`          | RTSP stream reading with reconnection              | Jetson, dGPU |
-| `gst_read_multiple_rtsp.py` | Multiple RTSP streams reading with reconnection    | Jetson, dGPU |
-| `gst_primary_detector.py`   | RTSP object detection with deepstream PrimaryModel | Jetson, dGPU |
-| `gst_trafficcam_model.py`   | TLT-pretrained TrafficCamNet model                 | Jetson, dGPU |
-| `gst_dashcam_model.py`      | TLT-pretrained DashCamNet model                    | Jetson, dGPU |
-|                             |                                                    |              |
-
+| Example                          | Description                                        |   Support    |
+|----------------------------------|----------------------------------------------------|:------------:|
+| `gst_read_rtsp.py`               | RTSP stream reading with reconnection              | Jetson, dGPU |
+| `gst_read_multiple_rtsp.py`      | Multiple RTSP streams reading with reconnection    | Jetson, dGPU |
+| `gst_primary_detector.py`        | RTSP object detection with deepstream PrimaryModel | Jetson, dGPU |
+| `gst_trafficcam_model.py`        | TLT-pretrained TrafficCamNet model                 | Jetson, dGPU |
+| `gst_dashcam_model.py`           | TLT-pretrained DashCamNet model                    | Jetson, dGPU |
+| `gst_multiple_rtsp_inference.py` | RTSP streams + DashCam + PeopleNet + Tracker       | Jetson, dGPU |
+|                                  |                                                    |              |
 
 Arguments parser:
 ```
   -h, --help               show this help message and exit
   -ip ip                   str, rtsp ip address, default='127.0.0.1'
   -port port               int, rtsp port, default=8554
-  -name name               str, rtsp address name, default='stream'
+  -name name               str, rtsp address name or names, default='stream'
   -codec codec             str, video codec, default='h264
   -debug_level debug_level str, GStreamer debug level, default=0
   -d                       bool, display pipeline output
+  -v                       bool, more versbosity
 ```
 
 

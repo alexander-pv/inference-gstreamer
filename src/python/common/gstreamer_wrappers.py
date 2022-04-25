@@ -207,6 +207,7 @@ class RTSPHandler:
                         if i not in self._rtspsrc_active.keys():
                             self._rtspsrc_active.update({i: cap.isOpened()})
                         else:
+
                             if not self._rtspsrc_active[i] and cap.isOpened():
                                 # If the camera was off before and now it is on
                                 self._rtspsrc_active.update({i: cap.isOpened()})
@@ -217,6 +218,7 @@ class RTSPHandler:
                                 # If the camera was on before and now it is off
                                 self._rtspsrc_active.update({i: cap.isOpened()})
                                 # Do not restart pipeline
+
                         del cap
             else:
                 self._rtspsrc_flow_timer += 1
@@ -249,17 +251,19 @@ class RTSPHandler:
                 self.alive = True
                 self.caught_eos = False
             else:
-                raise Exception(f'{self.pipeline.get_state(self.get_state_wait)}')
+                logging.info('Warning. Gst.State in pipeline could not be changed to PLAYING.')
+                logging.info(self.pipeline.get_state(self.get_state_wait))
 
 
 class ElementsConnectionHandler(metaclass=ABCMeta):
 
-    def __init__(self, next_element, index: str or int = None, verbose: bool = True):
+    def __init__(self, next_element, scr_pad=None, index: str or int = None, verbose: bool = True):
         """
         Abstract class handler for GStreamer elements dynamic generation based on pad-added and pad-removed signals.
-        :param next_element:
-        :param index:
-        :param loglevel:
+        :param next_element: next element which needs to be connected to the previous one
+        :param scr_pad:      src pad of the previous element
+        :param index:        handler index
+        :param loglevel:     logging
         """
         self.next_element = next_element
         self.next_element_sink_pad = None
@@ -268,8 +272,13 @@ class ElementsConnectionHandler(metaclass=ABCMeta):
         self.sink_pad_name = "sink" if self.index is None else f"sink_{self.index}"
         self.video_formats = ['video/x-raw', 'video/h264', 'video/h265']
         self.verbose = verbose
+        self.scr_pad = scr_pad
+
+        if self.verbose:
+            logging.info(f'Initializing {self.__class__.__name__}. self.scr_pad:{self.scr_pad}')
 
     def on_pad_added(self, element, src_pad) -> None:
+        src_pad = self.prepare_src_pad(src_pad)
         self.caps_string = src_pad.query_caps(None).to_string()
         if self.verbose:
             logging.info(f'Linking: {self.caps_string}')
@@ -278,11 +287,18 @@ class ElementsConnectionHandler(metaclass=ABCMeta):
             src_pad.link(self.next_element_sink_pad)
 
     def on_pad_removed(self, element, src_pad) -> None:
+        src_pad = self.prepare_src_pad(src_pad)
         if self.verbose:
             logging.info(f'Unlinking: {self.caps_string}')
         if sum([self.caps_string.startswith(f) for f in self.video_formats]):
             src_pad.unlink(self.next_element_sink_pad)
         self.destroy_sink_pad()
+
+    def prepare_src_pad(self, src_pad):
+        if self.verbose:
+            logging.info(f'Predefined src_pad: {self.scr_pad}')
+        src_pad = self.scr_pad if self.scr_pad is not None else src_pad
+        return src_pad
 
     @abstractmethod
     def make_sink_pad(self):
@@ -297,7 +313,7 @@ class DecodeBinHandler(ElementsConnectionHandler):
 
     def __init__(self, *args, **kwargs):
         """
-        Element handler for decodebin
+        Element handler basically for decodebin element
         :param args:
         :param kwargs:
         """
@@ -319,7 +335,7 @@ class StreamMuxHandler(ElementsConnectionHandler):
 
     def __init__(self, *args, **kwargs):
         """
-         Element handler for streammux
+         Element handler basically for nvstreammux element
         :param args:
         :param kwargs:
         """

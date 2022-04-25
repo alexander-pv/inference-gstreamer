@@ -1,3 +1,4 @@
 src/models/Primary_Detector/resnet10.caffemodel filter=lfs diff=lfs merge=lfs -text
 src/models/TrafficCamNet/resnet18_trafficcamnet_pruned.etlt filter=lfs diff=lfs merge=lfs -text
 src/models/DashCamNet/resnet18_dashcamnet_pruned.etlt filter=lfs diff=lfs merge=lfs -text
+src/models/PeopleNet/resnet34_peoplenet_pruned.etlt filter=lfs diff=lfs merge=lfs -text

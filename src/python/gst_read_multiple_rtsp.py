@@ -18,13 +18,13 @@ def main():
     if args.v:
         utils.set_logging()
 
-    rtsp_source = f'rtsp://{args.ip}:{args.port}/{args.name}'
+    rtsp_sources = [f'rtsp://{args.ip}:{args.port}/{name}' for name in args.name]
 
-    stream_multiplier = 2
+    stream_multiplier = 1
     width, height = 1920, 1080
     batched_push_timeout = 10
     attach_sys_ts = 1
-    n_sources = len([rtsp_source]) * stream_multiplier
+    n_sources = len(rtsp_sources) * stream_multiplier
     tiler_rows = int(n_sources ** 0.5)
     tiler_columns = int(np.math.ceil((1.0 * n_sources) / tiler_rows))
 
@@ -46,11 +46,10 @@ def main():
     pipeline.add(streammux)
 
     rtsp_blocks = {}
-    for i in range(stream_multiplier):
+    for i in range(n_sources):
 
-        rtsp_bin = gsw.RTSPBin(builder_id=i, location=rtsp_source, compression=args.codec)
+        rtsp_bin = gsw.RTSPBin(builder_id=i, location=rtsp_sources[i], compression=args.codec)
         rtsp_blocks.update({i: rtsp_bin})
-        streammux_sinkpad = streammux.get_request_pad('sink_%u' % i)
 
         if nvutils.is_aarch64():
             pipeline.add(rtsp_bin.rtspsrc)
@@ -62,11 +61,12 @@ def main():
             rtsp_bin.parser.link(rtsp_bin.decoder)
 
             decoder_srcpad = rtsp_bin.decoder.get_static_pad("src")
-            decoder_srcpad.link(streammux_sinkpad)
+            streammux_handler = gsw.StreamMuxHandler(next_element=streammux, scr_pad=decoder_srcpad, index=i)
+            rtsp_bin.rtspsrc.connect("pad-added", streammux_handler.on_pad_added)
+            rtsp_bin.rtspsrc.connect("pad-removed", streammux_handler.on_pad_removed)
         else:
             pipeline.add(rtsp_bin.rtspsrc)
             pipeline.add(rtsp_bin.decoder)
-
             streammux_handler = gsw.StreamMuxHandler(next_element=streammux, index=i)
             rtsp_bin.decoder.connect("pad-added", streammux_handler.on_pad_added)
             rtsp_bin.decoder.connect("pad-removed", streammux_handler.on_pad_removed)

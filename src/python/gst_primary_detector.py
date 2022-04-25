@@ -105,15 +105,15 @@ def pgie_buffer_probe(pad, info, u_data):
 
 
 def main():
+    args = utils.parse_arguments()
+    if args.v:
+        utils.set_logging()
+
     pgie_config = os.path.join('..', 'configs', 'pgie_primary_detector.txt')
     pgie_batch = 1
     batched_push_timeout = 10
     attach_sys_ts = 1
     width, height = 1920, 1080
-
-    args = utils.parse_arguments()
-    if args.v:
-        utils.set_logging()
 
     rtsp_source = f'rtsp://{args.ip}:{args.port}/{args.name}'
 
@@ -177,9 +177,10 @@ def main():
     pipeline.add(sink)
 
     if nvutils.is_aarch64():
-        streammux_sinkpad = streammux.get_request_pad('sink_%u' % 0)
         decoder_srcpad = rtsp_bin.decoder.get_static_pad("src")
-        decoder_srcpad.link(streammux_sinkpad)
+        streammux_handler = gsw.StreamMuxHandler(next_element=streammux, scr_pad=decoder_srcpad, index=0)
+        rtsp_bin.rtspsrc.connect("pad-added", streammux_handler.on_pad_added)
+        rtsp_bin.rtspsrc.connect("pad-removed", streammux_handler.on_pad_removed)
     else:
         streammux_handler = gsw.StreamMuxHandler(next_element=streammux, index=0)
         rtsp_bin.decoder.connect("pad-added", streammux_handler.on_pad_added)
