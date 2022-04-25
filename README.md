@@ -43,7 +43,7 @@ Arguments parser:
   -codec codec             str, video codec, default='h264
   -debug_level debug_level str, GStreamer debug level, default=0
   -d                       bool, display pipeline output
-  -v                       bool, more versbosity
+  -v                       bool, more verbosity
 ```
 
 
